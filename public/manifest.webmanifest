@@ -1,0 +1,19 @@
+{
+  "name": "EXPEDITION // Mission Control",
+  "short_name": "EXPEDITION",
+  "description": "Préparer, suivre et documenter vos expéditions.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#050b0f",
+  "theme_color": "#071014",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
