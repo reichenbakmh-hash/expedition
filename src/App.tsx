@@ -1,1098 +1,255 @@
+import { useState } from "react";
 import {
-  useEffect,
-  useMemo,
-  useState
-} from 'react'
-
-import Hud from './components/Hud'
-import MapView from './components/MapView'
-
-import type {
-  Expedition,
-  LatLng,
-  WaypointType
-} from './types'
+  Activity,
+  Pause,
+  Play,
+  Radio,
+  RotateCcw,
+} from "lucide-react";
 
 import {
-  createDefaultExpedition,
-  loadExpedition,
-  saveExpedition
-} from './storage'
+  TargetingUI,
+} from "@/components/ui/animated-hud-targeting-ui";
 
-const tabs = [
-  'MISSION',
-  'MAP',
-  'LOG',
-  'GEAR'
-] as const
+import { HudFrame } from "@/components/hud/HudFrame";
+import { Telemetry } from "@/components/hud/Telemetry";
 
-type Tab = typeof tabs[number]
+import { MissionPanel } from "@/components/expedition/MissionPanel";
+import { JournalPanel } from "@/components/expedition/JournalPanel";
 
-export default function App() {
-  const [expedition, setExpedition] =
-    useState<Expedition>(
-      () =>
-        loadExpedition() ??
-        createDefaultExpedition()
-    )
+import { BottomNav } from "@/components/navigation/BottomNav";
 
-  const [tab, setTab] =
-    useState<Tab>('MISSION')
+import { missions } from "@/data/missions";
 
-  const [tracking, setTracking] =
-    useState(false)
+import { useExpedition } from "@/hooks/useExpedition";
 
-  const [locationError, setLocationError] =
-    useState('')
+function App() {
+  const {
+    phase,
+    paused,
+    target,
+    setPaused,
+    selectTarget,
+  } = useExpedition();
 
-  const [selectedType, setSelectedType] =
-    useState<WaypointType>('LANDMARK')
+  const [activeTab, setActiveTab] =
+    useState("EXPEDITION");
 
-  const [selectedPoint, setSelectedPoint] =
-    useState<LatLng | null>(null)
+  const [resetKey, setResetKey] = useState(0);
 
-  const [online, setOnline] =
-    useState(navigator.onLine)
-
-  useEffect(() => {
-    saveExpedition(expedition)
-  }, [expedition])
-
-  useEffect(() => {
-    const handleOnline = () =>
-      setOnline(true)
-
-    const handleOffline = () =>
-      setOnline(false)
-
-    window.addEventListener(
-      'online',
-      handleOnline
-    )
-
-    window.addEventListener(
-      'offline',
-      handleOffline
-    )
-
-    return () => {
-      window.removeEventListener(
-        'online',
-        handleOnline
-      )
-
-      window.removeEventListener(
-        'offline',
-        handleOffline
-      )
-    }
-  }, [])
-
-  useEffect(() => {
-    if (
-      !tracking ||
-      !('geolocation' in navigator)
-    ) {
-      return
-    }
-
-    const id =
-      navigator.geolocation.watchPosition(
-        (geo) => {
-          const position = {
-            lat: geo.coords.latitude,
-            lng: geo.coords.longitude
-          }
-
-          setLocationError('')
-
-          setExpedition(
-            (current) => ({
-              ...current,
-              status: 'ACTIVE',
-              currentPosition:
-                position,
-              route: [
-                ...current.route,
-                position
-              ]
-            })
-          )
-        },
-        (error) => {
-          setLocationError(
-            error.message
-          )
-        },
-        {
-          enableHighAccuracy: true,
-          maximumAge: 5000,
-          timeout: 15000
-        }
-      )
-
-    return () =>
-      navigator.geolocation.clearWatch(id)
-  }, [tracking])
-
-  const distance = useMemo(
-    () =>
-      routeDistanceKm(
-        expedition.route
-      ),
-    [expedition.route]
-  )
-
-  const progress = useMemo(() => {
-    const target = Math.max(
-      expedition.distanceTargetKm,
-      0.1
-    )
-
-    return Math.min(
-      100,
-      (distance / target) * 100
-    )
-  }, [
-    expedition.distanceTargetKm,
-    distance
-  ])
-
-  const spent =
-    expedition.expenses.reduce(
-      (sum, item) =>
-        sum + item.amount,
-      0
-    )
-
-  const checklistDone =
-    expedition.checklist.filter(
-      (item) => item.done
-    ).length
-
-  function update(
-    partial: Partial<Expedition>
-  ) {
-    setExpedition(
-      (current) => ({
-        ...current,
-        ...partial
-      })
-    )
-  }
-
-  function toggleTracking() {
-    if (!('geolocation' in navigator)) {
-      setLocationError(
-        'La géolocalisation n’est pas disponible sur ce navigateur.'
-      )
-
-      return
-    }
-
-    setTracking(
-      (current) => !current
-    )
-  }
-
-  function addWaypoint() {
-    if (!selectedPoint) {
-      return
-    }
-
-    const title =
-      prompt(
-        'Nom du waypoint',
-        'Point d’intérêt'
-      )?.trim()
-
-    if (!title) {
-      return
-    }
-
-    const note =
-      prompt(
-        'Note',
-        ''
-      ) ?? ''
-
-    update({
-      waypoints: [
-        ...expedition.waypoints,
-        {
-          id: crypto.randomUUID(),
-          title,
-          type: selectedType,
-          note,
-          position: selectedPoint,
-          createdAt:
-            new Date().toISOString()
-        }
-      ]
-    })
-
-    setSelectedPoint(null)
-  }
-
-  function addJournal() {
-    const title =
-      prompt(
-        'Titre de l’entrée',
-        'Observation'
-      )?.trim()
-
-    if (!title) {
-      return
-    }
-
-    const note =
-      prompt(
-        'Observation',
-        ''
-      ) ?? ''
-
-    update({
-      journal: [
-        {
-          id: crypto.randomUUID(),
-          title,
-          note,
-          createdAt:
-            new Date().toISOString(),
-          position:
-            expedition.currentPosition
-        },
-        ...expedition.journal
-      ]
-    })
-  }
-
-  function addExpense() {
-    const label =
-      prompt(
-        'Dépense',
-        'Transport'
-      )?.trim()
-
-    if (!label) {
-      return
-    }
-
-    const amount = Number(
-      prompt(
-        'Montant en Ar',
-        '0'
-      )
-    )
-
-    if (
-      !Number.isFinite(amount) ||
-      amount < 0
-    ) {
-      return
-    }
-
-    update({
-      expenses: [
-        ...expedition.expenses,
-        {
-          id: crypto.randomUUID(),
-          label,
-          amount,
-          category: 'AUTRE'
-        }
-      ]
-    })
-  }
-
-  function completeExpedition() {
-    update({
-      status: 'COMPLETE'
-    })
-
-    setTracking(false)
-  }
-
-  function reset() {
-    if (
-      !confirm(
-        'Réinitialiser entièrement cette expédition ?'
-      )
-    ) {
-      return
-    }
-
-    setExpedition(
-      createDefaultExpedition()
-    )
-
-    setTracking(false)
-    setSelectedPoint(null)
-  }
+  const resetTargeting = () => {
+    setResetKey((value) => value + 1);
+    setPaused(false);
+  };
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <span className="eyebrow">
-            MISSION CONTROL
-          </span>
-
-          <h1>EXPEDITION</h1>
-        </div>
-
-        <div
-          className={`status-pill ${
-            online
-              ? 'online'
-              : 'offline'
-          }`}
-        >
-          <span />
-
-          {online
-            ? 'ONLINE'
-            : 'OFFLINE'}
-        </div>
-      </header>
-
-      <section className="hero-grid">
-        <div className="hud-panel">
-          <Hud
-            progress={progress}
-          />
-
-          <div className="target-info">
-            <span className="eyebrow">
-              TARGET
-            </span>
-
-            <strong>
-              {expedition.destination}
-            </strong>
-
-            <small>
-              {expedition.status}
-            </small>
-          </div>
-        </div>
-
-        <div className="mission-summary panel">
-          <div className="section-head">
-            <span className="eyebrow">
-              CURRENT MISSION
-            </span>
-
-            <span>
-              {expedition.name}
-            </span>
-          </div>
-
-          <input
-            value={
-              expedition.destination
-            }
-            onChange={(event) =>
-              update({
-                destination:
-                  event.target.value
-              })
-            }
-            aria-label="Destination"
-          />
-
-          <textarea
-            value={
-              expedition.objective
-            }
-            onChange={(event) =>
-              update({
-                objective:
-                  event.target.value
-              })
-            }
-            aria-label="Objectif"
-          />
-
-          <div className="metric-row">
-            <Metric
-              label="DISTANCE"
-              value={`${distance.toFixed(
-                2
-              )} km`}
-            />
-
-            <Metric
-              label="WAYPOINTS"
-              value={String(
-                expedition.waypoints.length
-              )}
-            />
-
-            <Metric
-              label="GEAR"
-              value={`${checklistDone}/${expedition.checklist.length}`}
-            />
-          </div>
-
-          <div className="mission-buttons">
-            <button
-              className={`primary ${
-                tracking
-                  ? 'active'
-                  : ''
-              }`}
-              onClick={
-                toggleTracking
-              }
-            >
-              {tracking
-                ? '■ STOP TRACKING'
-                : '◉ START TRACKING'}
-            </button>
-
-            {expedition.status !==
-              'COMPLETE' && (
-              <button
-                className="secondary"
-                onClick={
-                  completeExpedition
-                }
-              >
-                ✓ COMPLETE
-              </button>
-            )}
-          </div>
-
-          {locationError && (
-            <p className="error">
-              GPS : {locationError}
-            </p>
-          )}
-        </div>
-      </section>
-
-      <nav
-        className="tabs"
-        aria-label="Navigation principale"
-      >
-        {tabs.map((item) => (
-          <button
-            key={item}
-            className={
-              tab === item
-                ? 'selected'
-                : ''
-            }
-            onClick={() =>
-              setTab(item)
-            }
-          >
-            {item}
-          </button>
-        ))}
-      </nav>
-
-      {tab === 'MISSION' && (
-        <MissionTab
-          expedition={expedition}
-          update={update}
-          progress={progress}
-          spent={spent}
-          addExpense={addExpense}
-        />
-      )}
-
-      {tab === 'MAP' && (
-        <MapTab
-          expedition={expedition}
-          selectedType={selectedType}
-          setSelectedType={
-            setSelectedType
-          }
-          selectedPoint={
-            selectedPoint
-          }
-          setSelectedPoint={
-            setSelectedPoint
-          }
-          addWaypoint={
-            addWaypoint
-          }
-        />
-      )}
-
-      {tab === 'LOG' && (
-        <LogTab
-          expedition={expedition}
-          addJournal={
-            addJournal
-          }
-        />
-      )}
-
-      {tab === 'GEAR' && (
-        <GearTab
-          expedition={expedition}
-          update={update}
-          reset={reset}
-        />
-      )}
-
-      <footer>
-        EXPEDITION // LOCAL DATA //{' '}
-        {new Date().getFullYear()}
-      </footer>
-    </main>
-  )
-}
-
-function MissionTab({
-  expedition,
-  update,
-  progress,
-  spent,
-  addExpense
-}: {
-  expedition: Expedition
-  update: (
-    partial: Partial<Expedition>
-  ) => void
-  progress: number
-  spent: number
-  addExpense: () => void
-}) {
-  return (
-    <section className="grid-2">
-      <article className="panel">
-        <div className="section-head">
-          <span className="eyebrow">
-            OBJECTIVE
-          </span>
-
-          <span>
-            {Math.round(progress)}%
-          </span>
-        </div>
-
-        <div className="bar">
-          <span
-            style={{
-              width: `${progress}%`
-            }}
-          />
-        </div>
-
-        <div className="mini-grid">
-          <Field
-            label="START"
-            value={
-              expedition.startDate
-            }
-            onChange={(value) =>
-              update({
-                startDate: value
-              })
-            }
-            type="date"
-          />
-
-          <Field
-            label="END"
-            value={
-              expedition.endDate
-            }
-            onChange={(value) =>
-              update({
-                endDate: value
-              })
-            }
-            type="date"
-          />
-
-          <Field
-            label="TARGET KM"
-            value={String(
-              expedition.distanceTargetKm
-            )}
-            onChange={(value) =>
-              update({
-                distanceTargetKm:
-                  Number(value) || 0
-              })
-            }
-            type="number"
-          />
-
-          <Field
-            label="TEAM"
-            value={String(
-              expedition.participants
-            )}
-            onChange={(value) =>
-              update({
-                participants: Math.max(
-                  1,
-                  Number(value) || 1
-                )
-              })
-            }
-            type="number"
-          />
-        </div>
-      </article>
-
-      <article className="panel">
-        <div className="section-head">
-          <span className="eyebrow">
-            BUDGET
-          </span>
-
-          <button
-            className="text-btn"
-            onClick={
-              addExpense
-            }
-          >
-            + ADD
-          </button>
-        </div>
-
-        <div className="money">
-          {spent.toLocaleString(
-            'fr-FR'
-          )}{' '}
-          <small>Ar</small>
-        </div>
-
-        <p className="muted">
-          Prévu :{' '}
-          {expedition.budget.toLocaleString(
-            'fr-FR'
-          )}{' '}
-          Ar
-        </p>
-
-        <Field
-          label="BUDGET TOTAL"
-          value={String(
-            expedition.budget
-          )}
-          onChange={(value) =>
-            update({
-              budget:
-                Number(value) || 0
-            })
-          }
-          type="number"
-        />
-      </article>
-    </section>
-  )
-}
-
-function MapTab({
-  expedition,
-  selectedType,
-  setSelectedType,
-  selectedPoint,
-  setSelectedPoint,
-  addWaypoint
-}: {
-  expedition: Expedition
-  selectedType: WaypointType
-  setSelectedType: (
-    value: WaypointType
-  ) => void
-  selectedPoint: LatLng | null
-  setSelectedPoint: (
-    value: LatLng | null
-  ) => void
-  addWaypoint: () => void
-}) {
-  return (
-    <section className="panel map-panel">
-      <div className="section-head">
-        <span className="eyebrow">
-          TACTICAL MAP
-        </span>
-
-        <span>
-          {selectedPoint
-            ? 'POINT SELECTED'
-            : 'TAP MAP TO SELECT'}
-        </span>
-      </div>
-
-      <MapView
-        position={
-          expedition.currentPosition
-        }
-        route={expedition.route}
-        waypoints={
-          expedition.waypoints
-        }
-        onMapClick={
-          setSelectedPoint
-        }
-      />
-
-      {selectedPoint && (
-        <div className="map-controls">
-          <select
-            value={selectedType}
-            onChange={(event) =>
-              setSelectedType(
-                event.target.value as WaypointType
-              )
-            }
-          >
-            {[
-              'LANDMARK',
-              'PHOTO',
-              'WATER',
-              'DANGER',
-              'NOTE'
-            ].map((value) => (
-              <option
-                key={value}
-                value={value}
-              >
-                {value}
-              </option>
-            ))}
-          </select>
-
-          <button
-            className="primary"
-            onClick={
-              addWaypoint
-            }
-          >
-            SAVE WAYPOINT
-          </button>
-
-          <button
-            className="secondary"
-            onClick={() =>
-              setSelectedPoint(
-                null
-              )
-            }
-          >
-            CANCEL
-          </button>
-        </div>
-      )}
-
-      <p className="muted">
-        Les tuiles cartographiques
-        nécessitent une connexion.
-        Le reste des données de
-        mission est stocké localement.
-      </p>
-    </section>
-  )
-}
-
-function LogTab({
-  expedition,
-  addJournal
-}: {
-  expedition: Expedition
-  addJournal: () => void
-}) {
-  return (
-    <section className="panel">
-      <div className="section-head">
-        <span className="eyebrow">
-          FIELD LOG
-        </span>
-
-        <button
-          className="text-btn"
-          onClick={addJournal}
-        >
-          + NEW ENTRY
-        </button>
-      </div>
-
-      {expedition.journal.length ===
-      0 ? (
-        <Empty text="Aucune observation enregistrée." />
-      ) : (
-        expedition.journal.map(
-          (entry) => (
-            <div
-              className="log-entry"
-              key={entry.id}
-            >
-              <strong>
-                {entry.title}
-              </strong>
-
-              <small>
-                {new Date(
-                  entry.createdAt
-                ).toLocaleString(
-                  'fr-FR'
-                )}
-              </small>
-
-              <p>
-                {entry.note}
-              </p>
-
-              {entry.position && (
-                <small>
-                  GPS :{' '}
-                  {entry.position.lat.toFixed(
-                    5
-                  )},{' '}
-                  {entry.position.lng.toFixed(
-                    5
-                  )}
-                </small>
-              )}
+    <HudFrame>
+      <div className="mx-auto min-h-screen max-w-7xl pb-20">
+        {/* HEADER */}
+        <header className="flex items-center justify-between border-b border-cyan-100/10 px-4 py-4">
+          <div>
+            <div className="display text-xl tracking-[0.25em] text-cyan-50">
+              EXPEDITION
             </div>
-          )
-        )
-      )}
-    </section>
-  )
-}
 
-function GearTab({
-  expedition,
-  update,
-  reset
-}: {
-  expedition: Expedition
-  update: (
-    partial: Partial<Expedition>
-  ) => void
-  reset: () => void
-}) {
-  function toggle(id: string) {
-    update({
-      checklist:
-        expedition.checklist.map(
-          (item) =>
-            item.id === id
-              ? {
-                  ...item,
-                  done: !item.done
-                }
-              : item
-        )
-    })
-  }
+            <div className="mt-1 flex items-center gap-2 text-[7px] tracking-[0.25em] text-cyan-100/30">
+              <span className="h-1.5 w-1.5 rounded-full bg-cyan-300/80 shadow-[0_0_8px_rgba(103,232,249,0.8)]" />
+              SYSTEM ONLINE
+            </div>
+          </div>
 
-  function addGear() {
-    const label =
-      prompt(
-        'Équipement',
-        'Nouvel équipement'
-      )?.trim()
+          <div className="text-right">
+            <div className="flex items-center justify-end gap-2">
+              <Activity
+                size={14}
+                strokeWidth={1}
+                className="text-cyan-300/50"
+              />
 
-    if (!label) {
-      return
-    }
+              <span className="text-[8px] tracking-widest text-cyan-100/50">
+                E-OS / 01
+              </span>
+            </div>
 
-    update({
-      checklist: [
-        ...expedition.checklist,
-        {
-          id: crypto.randomUUID(),
-          label,
-          done: false,
-          category: 'PERSONNALISÉ'
-        }
-      ]
-    })
-  }
+            <div className="mt-1 text-[7px] text-cyan-100/25">
+              PERSONAL EXPLORATION SYSTEM
+            </div>
+          </div>
+        </header>
 
-  return (
-    <section className="panel">
-      <div className="section-head">
-        <span className="eyebrow">
-          EQUIPMENT CHECK
-        </span>
+        {/* MAIN HUD */}
+        {activeTab === "EXPEDITION" && (
+          <>
+            <section className="relative px-3 pt-3">
+              <div className="relative min-h-[430px] overflow-hidden border border-cyan-100/10 bg-black/30">
+                {/* Targeting animation */}
+                <div
+                  key={resetKey}
+                  className="absolute inset-0 flex items-center justify-center"
+                >
+                  <TargetingUI
+                    className="h-[390px] w-full max-w-[430px]"
+                    pathColors={{
+                      light: "#c9faff",
+                      dark: "#c9faff",
+                    }}
+                  />
+                </div>
 
-        <span>
-          {
-            expedition.checklist.filter(
-              (item) =>
-                item.done
-            ).length
-          }
-          /
-          {expedition.checklist.length}
-        </span>
+                {/* TOP LEFT */}
+                <div className="absolute left-3 top-3">
+                  <div className="text-[7px] tracking-[0.25em] text-cyan-100/30">
+                    ACQUISITION
+                  </div>
+
+                  <div className="mt-1 text-[11px] font-semibold tracking-widest text-cyan-100/80">
+                    {phase}
+                  </div>
+                </div>
+
+                {/* TOP RIGHT */}
+                <div className="absolute right-3 top-3 text-right">
+                  <div className="text-[7px] tracking-[0.25em] text-cyan-100/30">
+                    TARGET
+                  </div>
+
+                  <div className="mt-1 text-[11px] font-semibold tracking-widest text-cyan-100/80">
+                    {target}
+                  </div>
+                </div>
+
+                {/* BOTTOM LEFT */}
+                <div className="absolute bottom-3 left-3">
+                  <div className="flex items-center gap-2">
+                    <Radio
+                      size={13}
+                      strokeWidth={1}
+                      className="text-cyan-300/50"
+                    />
+
+                    <span className="text-[8px] tracking-widest text-cyan-100/40">
+                      SENSOR FEED
+                    </span>
+                  </div>
+                </div>
+
+                {/* CONTROLS */}
+                <div className="absolute bottom-3 right-3 flex gap-2">
+                  <button
+                    type="button"
+                    title={
+                      paused
+                        ? "Resume sweep"
+                        : "Hold sweep"
+                    }
+                    onClick={() =>
+                      setPaused(!paused)
+                    }
+                    className="flex h-8 w-8 items-center justify-center border border-cyan-100/15 bg-black/50 text-cyan-100/60 transition hover:border-cyan-100/35 hover:text-cyan-100"
+                  >
+                    {paused ? (
+                      <Play size={13} />
+                    ) : (
+                      <Pause size={13} />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    title="Reset targeting"
+                    onClick={resetTargeting}
+                    className="flex h-8 w-8 items-center justify-center border border-cyan-100/15 bg-black/50 text-cyan-100/60 transition hover:border-cyan-100/35 hover:text-cyan-100"
+                  >
+                    <RotateCcw size={13} />
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            {/* TELEMETRY */}
+            <section className="px-3 pt-3">
+              <Telemetry
+                phase={phase}
+                target={target}
+              />
+            </section>
+
+            {/* MISSIONS */}
+            <section className="grid gap-3 px-3 pt-3 lg:grid-cols-2">
+              <MissionPanel
+                missions={missions}
+                onSelect={selectTarget}
+              />
+
+              <JournalPanel />
+            </section>
+          </>
+        )}
+
+        {/* MAP */}
+        {activeTab === "MAP" && (
+          <section className="p-3">
+            <div className="hud-panel hud-border flex min-h-[650px] items-center justify-center">
+              <div className="text-center">
+                <div className="display text-xl tracking-[0.3em] text-cyan-100/70">
+                  CARTOGRAPHY
+                </div>
+
+                <div className="mt-3 text-[8px] tracking-[0.25em] text-cyan-100/25">
+                  NAVIGATION MODULE INITIALIZING
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* LOG */}
+        {activeTab === "LOG" && (
+          <section className="p-3">
+            <JournalPanel />
+          </section>
+        )}
+
+        {/* SIGNAL */}
+        {activeTab === "SIGNAL" && (
+          <section className="p-3">
+            <div className="hud-panel hud-border min-h-[650px] p-5">
+              <div className="text-[8px] tracking-[0.3em] text-cyan-100/30">
+                SIGNAL MONITOR
+              </div>
+
+              <div className="mt-5 flex h-32 items-end gap-1 overflow-hidden border border-cyan-100/10 p-3">
+                {Array.from({
+                  length: 48,
+                }).map((_, index) => (
+                  <div
+                    key={index}
+                    className="flex-1 bg-cyan-300/50"
+                    style={{
+                      height: `${15 + ((index * 37) % 75)}%`,
+                    }}
+                  />
+                ))}
+              </div>
+
+              <div className="mt-4 text-[8px] leading-relaxed text-cyan-100/35">
+                SIGNAL STABILITY: 98.4%
+                <br />
+                CHANNEL: E-01
+                <br />
+                TRANSMISSION: ACTIVE
+              </div>
+            </div>
+          </section>
+        )}
       </div>
 
-      {expedition.checklist.map(
-        (item) => (
-          <label
-            className="check-row"
-            key={item.id}
-          >
-            <input
-              type="checkbox"
-              checked={item.done}
-              onChange={() =>
-                toggle(item.id)
-              }
-            />
-
-            <span>
-              {item.label}
-            </span>
-
-            <small>
-              {item.category}
-            </small>
-          </label>
-        )
-      )}
-
-      <button
-        className="secondary add-gear"
-        onClick={addGear}
-      >
-        + ADD EQUIPMENT
-      </button>
-
-      <button
-        className="danger-btn"
-        onClick={reset}
-      >
-        RESET MISSION DATA
-      </button>
-    </section>
-  )
-}
-
-function Metric({
-  label,
-  value
-}: {
-  label: string
-  value: string
-}) {
-  return (
-    <div>
-      <span className="eyebrow">
-        {label}
-      </span>
-
-      <strong>
-        {value}
-      </strong>
-    </div>
-  )
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  type = 'text'
-}: {
-  label: string
-  value: string
-  onChange: (
-    value: string
-  ) => void
-  type?: string
-}) {
-  return (
-    <label className="field">
-      <span>
-        {label}
-      </span>
-
-      <input
-        type={type}
-        value={value}
-        onChange={(event) =>
-          onChange(
-            event.target.value
-          )
-        }
+      <BottomNav
+        active={activeTab}
+        onChange={setActiveTab}
       />
-    </label>
-  )
+    </HudFrame>
+  );
 }
 
-function Empty({
-  text
-}: {
-  text: string
-}) {
-  return (
-    <div className="empty">
-      {text}
-    </div>
-  )
-}
-
-function routeDistanceKm(
-  route: LatLng[]
-) {
-  let total = 0
-
-  for (
-    let i = 1;
-    i < route.length;
-    i += 1
-  ) {
-    total += haversineKm(
-      route[i - 1],
-      route[i]
-    )
-  }
-
-  return total
-}
-
-function haversineKm(
-  a: LatLng,
-  b: LatLng
-) {
-  const R = 6371
-
-  const dLat =
-    ((b.lat - a.lat) *
-      Math.PI) /
-    180
-
-  const dLon =
-    ((b.lng - a.lng) *
-      Math.PI) /
-    180
-
-  const lat1 =
-    (a.lat * Math.PI) /
-    180
-
-  const lat2 =
-    (b.lat * Math.PI) /
-    180
-
-  const h =
-    Math.sin(dLat / 2) **
-      2 +
-    Math.cos(lat1) *
-      Math.cos(lat2) *
-      Math.sin(dLon / 2) **
-      2
-
-  return (
-    2 *
-    R *
-    Math.asin(
-      Math.sqrt(h)
-    )
-  )
-      }
+export default App;
